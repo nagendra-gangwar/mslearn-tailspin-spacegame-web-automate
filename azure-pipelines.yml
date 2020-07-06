@@ -1,297 +1,299 @@
-{
-    "$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
-    "contentVersion": "1.0.0.0",
-    "parameters": {
-        "serverfarms_tailspin_space_game_asp_name": {
-            "defaultValue": "tailspin-space-game-asp",
-            "type": "String"
-        },
-        "servers_tailspin_space_game_sql_name": {
-            "defaultValue": "tailspin-space-game-sql",
-            "type": "String"
-        },
-        "sites_tailspin_space_game_web_name": {
-            "defaultValue": "tailspin-space-game-web",
-            "type": "String"
-        },
-        "location": {
-            "type": "string",
-            "defaultValue": "[resourceGroup().location]"
-        },
-        "deployPrefix": {
-            "type": "string",
-            "minLength": 3,
-            "maxLength": 11
-        },
-        "uniqueSuffix": {
-            "type": "string",
-            "minLength": 3,
-            "maxLength": 11
-        },
-        "keyVaultName": {
-            "type": "string"
-        },
-        "adminPassword": {
-            "type": "string"
-        },
-        "firstRun": {
-            "type": "string"
-        }
-    },
-    "variables": {
-        "uniqueName": "[concat(parameters('deployPrefix'), parameters('uniqueSuffix'))]"
-    },
-    "resources": [
-        {
-            "type": "Microsoft.Sql/servers",
-            "apiVersion": "2015-05-01-preview",
-            "name": "[concat(parameters('servers_tailspin_space_game_sql_name'), variables('uniqueName'))]",
-            "location": "[parameters('location')]",
-            "kind": "v12.0",
-            "properties": {
-                "administratorLogin": "azuresql",
-                "administratorLoginPassword": "[parameters('adminPassword')]",
-                "version": "12.0"
-            }
-        },
-        {
-            "type": "Microsoft.Web/serverfarms",
-            "apiVersion": "2016-09-01",
-            "name": "[parameters('serverfarms_tailspin_space_game_asp_name')]",
-            "location": "[parameters('location')]",
-            "sku": {
-                "name": "B1",
-                "tier": "Basic",
-                "size": "B1",
-                "family": "B",
-                "capacity": 1
-            },
-            "kind": "app",
-            "properties": {
-                "name": "[parameters('serverfarms_tailspin_space_game_asp_name')]",
-                "perSiteScaling": false,
-                "reserved": false,
-                "targetWorkerCount": 0,
-                "targetWorkerSizeId": 0
-            }
-        },
-        {
-            "type": "Microsoft.Sql/servers/firewallRules",
-            "apiVersion": "2015-05-01-preview",
-            "name": "[concat(concat(parameters('servers_tailspin_space_game_sql_name'), variables('uniqueName')), '/AllowAllWindowsAzureIps')]",
-            "dependsOn": [
-                "[resourceId('Microsoft.Sql/servers', concat(parameters('servers_tailspin_space_game_sql_name'), variables('uniqueName')))]"
-            ],
-            "properties": {
-                "startIpAddress": "0.0.0.0",
-                "endIpAddress": "0.0.0.0"
-            }
-        },
-        {
-            "type": "Microsoft.Sql/servers/databases",
-            "apiVersion": "2017-03-01-preview",
-            "name": "[concat(concat(parameters('servers_tailspin_space_game_sql_name'), variables('uniqueName')), '/tailspindatabase')]",
-            "location": "[parameters('location')]",
-            "dependsOn": [
-                "[resourceId('Microsoft.Sql/servers', concat(parameters('servers_tailspin_space_game_sql_name'), variables('uniqueName')))]"
-            ],
-            "sku": {
-                "name": "S1",
-                "tier": "Standard"
-            },
-            "kind": "v12.0,user,vcore",
-            "properties": {
-                "collation": "SQL_Latin1_General_CP1_CI_AS",
-                "catalogCollation": "SQL_Latin1_General_CP1_CI_AS",
-                "zoneRedundant": false
-            },
-            "resources": [{
-                "name": "Import",
-                "type": "extensions",
-                "apiVersion": "2014-04-01",
-                "condition": "[equals(parameters('firstRun'), 'true')]",
-                "dependsOn": [
-                    "[resourceId('Microsoft.Sql/servers/databases', concat(parameters('servers_tailspin_space_game_sql_name'), variables('uniqueName')), 'tailspindatabase')]"
-                ],
-                "properties": {
-                    "storageKeyType": "SharedAccessKey",
-                    "storageKey": "?",
-                    "storageUri": "https://sqldbtutorial.blob.core.windows.net/bacpacs/tailspindatabase.bacpac",
-                    "administratorLogin": "azuresql",
-                    "administratorLoginPassword": "[parameters('adminPassword')]",
-                    "operationMode": "Import"
-                }
-            }]
-        },
-        {
-            "type": "Microsoft.KeyVault/vaults/secrets",
-            "name": "[concat(parameters('keyVaultName'),'/connectionString')]",
-            "apiVersion": "2015-06-01",
-            "properties": {
-                "contentType": "text/plain",
-                "value": "[concat('Server=tcp:',reference(concat(parameters('servers_tailspin_space_game_sql_name'), variables('uniqueName'))).fullyQualifiedDomainName,',1433;Initial Catalog=tailspindatabase;Persist Security Info=False;User ID=',reference(concat(parameters('servers_tailspin_space_game_sql_name'), variables('uniqueName'))).administratorLogin,';Password=',parameters('adminPassword'),';MultipleActiveResultSets=False;Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;')]"
-            },
-            "dependsOn": [
-                "[resourceId('Microsoft.Sql/servers/databases', concat(parameters('servers_tailspin_space_game_sql_name'), variables('uniqueName')), 'tailspindatabase')]"
-            ]
-        },
-        {
-            "type": "Microsoft.KeyVault/vaults/secrets",
-            "name": "[concat(parameters('keyVaultName'),'/firstRun')]",
-            "apiVersion": "2015-06-01",
-            "properties": {
-                "value": "false"
-            },
-            "dependsOn": [
-                "[resourceId('Microsoft.Sql/servers/databases', concat(parameters('servers_tailspin_space_game_sql_name'), variables('uniqueName')), 'tailspindatabase')]"
-            ]
-        },
-        {
-            "type": "Microsoft.Web/sites",
-            "apiVersion": "2016-08-01",
-            "name": "[concat(parameters('sites_tailspin_space_game_web_name'), variables('uniqueName'))]",
-            "location": "[parameters('location')]",
-            "dependsOn": [
-                "[resourceId('Microsoft.Web/serverfarms', parameters('serverfarms_tailspin_space_game_asp_name'))]"
-            ],
-            "kind": "app",
-            "properties": {
-                "enabled": true,
-                "hostNameSslStates": [
-                    {
-                        "name": "[concat(concat(parameters('sites_tailspin_space_game_web_name'), variables('uniqueName')), '.azurewebsites.net')]",
-                        "sslState": "Disabled",
-                        "hostType": "Standard"
-                    },
-                    {
-                        "name": "[concat(concat(parameters('sites_tailspin_space_game_web_name'), variables('uniqueName')), '.scm.azurewebsites.net')]",
-                        "sslState": "Disabled",
-                        "hostType": "Repository"
-                    }
-                ],
-                "serverFarmId": "[resourceId('Microsoft.Web/serverfarms', parameters('serverfarms_tailspin_space_game_asp_name'))]",
-                "reserved": false,
-                "scmSiteAlsoStopped": false,
-                "clientAffinityEnabled": true,
-                "clientCertEnabled": false,
-                "hostNamesDisabled": false,
-                "containerSize": 0,
-                "dailyMemoryTimeQuota": 0,
-                "httpsOnly": false
-            }
-        },
-        {
-            "type": "Microsoft.Web/sites/config",
-            "apiVersion": "2016-08-01",
-            "name": "[concat(concat(parameters('sites_tailspin_space_game_web_name'), variables('uniqueName')), '/web')]",
-            "location": "[parameters('location')]",
-            "dependsOn": [
-                "[resourceId('Microsoft.Web/sites', concat(parameters('sites_tailspin_space_game_web_name'), variables('uniqueName')))]"
-            ],
-            "properties": {
-                "numberOfWorkers": 1,
-                "defaultDocuments": [
-                    "Default.htm",
-                    "Default.html",
-                    "Default.asp",
-                    "index.htm",
-                    "index.html",
-                    "iisstart.htm",
-                    "default.aspx",
-                    "index.php",
-                    "hostingstart.html"
-                ],
-                 "connectionStrings": [
-                    {
-                    "name": "DefaultConnection",
-                    "connectionString": "[concat('Server=tcp:',reference(concat(parameters('servers_tailspin_space_game_sql_name'), variables('uniqueName'))).fullyQualifiedDomainName,',1433;Initial Catalog=tailspindatabase;Persist Security Info=False;User ID=',reference(concat(parameters('servers_tailspin_space_game_sql_name'), variables('uniqueName'))).administratorLogin,';Password=',parameters('adminPassword'),';MultipleActiveResultSets=False;Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;')]",
-                    "type": "SQLAzure"
-                    }
-                ],
-                "netFrameworkVersion": "v4.0",
-                "phpVersion": "5.6",
-                "pythonVersion": "",
-                "nodeVersion": "",
-                "linuxFxVersion": "",
-                "requestTracingEnabled": false,
-                "remoteDebuggingEnabled": false,
-                "httpLoggingEnabled": false,
-                "logsDirectorySizeLimit": 35,
-                "detailedErrorLoggingEnabled": false,
-                "publishingUsername": "$tailspin-space-game-web-dev",
-                "scmType": "None",
-                "use32BitWorkerProcess": true,
-                "webSocketsEnabled": false,
-                "alwaysOn": false,
-                "appCommandLine": "",
-                "managedPipelineMode": "Integrated",
-                "virtualApplications": [
-                    {
-                        "virtualPath": "/",
-                        "physicalPath": "site\\wwwroot",
-                        "preloadEnabled": false,
-                        "virtualDirectories": null
-                    }
-                ],
-                "winAuthAdminState": 0,
-                "winAuthTenantState": 0,
-                "customAppPoolIdentityAdminState": false,
-                "customAppPoolIdentityTenantState": false,
-                "loadBalancing": "LeastRequests",
-                "routingRules": [],
-                "experiments": {
-                    "rampUpRules": []
-                },
-                "autoHealEnabled": false,
-                "vnetName": "",
-                "siteAuthEnabled": false,
-                "siteAuthSettings": {
-                    "enabled": null,
-                    "unauthenticatedClientAction": null,
-                    "tokenStoreEnabled": null,
-                    "allowedExternalRedirectUrls": null,
-                    "defaultProvider": null,
-                    "clientId": null,
-                    "clientSecret": null,
-                    "clientSecretCertificateThumbprint": null,
-                    "issuer": null,
-                    "allowedAudiences": null,
-                    "additionalLoginParams": null,
-                    "isAadAutoProvisioned": false,
-                    "googleClientId": null,
-                    "googleClientSecret": null,
-                    "googleOAuthScopes": null,
-                    "facebookAppId": null,
-                    "facebookAppSecret": null,
-                    "facebookOAuthScopes": null,
-                    "twitterConsumerKey": null,
-                    "twitterConsumerSecret": null,
-                    "microsoftAccountClientId": null,
-                    "microsoftAccountClientSecret": null,
-                    "microsoftAccountOAuthScopes": null
-                },
-                "localMySqlEnabled": false,
-                "http20Enabled": true,
-                "minTlsVersion": "1.2",
-                "ftpsState": "AllAllowed",
-                "reservedInstanceCount": 0,
-                "fileChangeAuditEnabled": false,
-                "functionsRuntimeScaleMonitoringEnabled": false
-            }
-        },
-        {
-            "type": "Microsoft.Web/sites/hostNameBindings",
-            "apiVersion": "2016-08-01",
-            "name": "[concat(concat(parameters('sites_tailspin_space_game_web_name'), variables('uniqueName')), '/', concat(parameters('sites_tailspin_space_game_web_name'), variables('uniqueName'), '.azurewebsites.net'))]",
-            "location": "[parameters('location')]",
-            "dependsOn": [
-                "[resourceId('Microsoft.Web/sites', concat(parameters('sites_tailspin_space_game_web_name'), variables('uniqueName')))]"
-            ],
-            "properties": {
-                "siteName": "tailspin-space-game-web",
-                "hostNameType": "Verified"
-            }
-        }
-    ],
-    "outputs": {}
-}
+trigger:
+- '*'
+
+variables:
+  buildConfiguration: 'Release'
+
+stages:
+- stage: 'Build'
+  displayName: 'Build the web application'
+  jobs: 
+  - job: 'Build'
+    displayName: 'Build job'
+    pool:
+      vmImage: 'ubuntu-18.04'
+      demands:
+      - npm
+
+    variables:
+      wwwrootDir: 'Tailspin.SpaceGame.Web/wwwroot'
+      dotnetSdkVersion: '3.1.300'
+
+    steps:
+    - task: UseDotNet@2
+      displayName: 'Use .NET Core SDK $(dotnetSdkVersion)'
+      inputs:
+        version: '$(dotnetSdkVersion)'
+
+    - task: Npm@1
+      displayName: 'Run npm install'
+      inputs:
+        verbose: false
+
+    - script: './node_modules/.bin/node-sass $(wwwrootDir) --output $(wwwrootDir)'
+      displayName: 'Compile Sass assets'
+
+    - task: gulp@1
+      displayName: 'Run gulp tasks'
+
+    - script: 'echo "$(Build.DefinitionName), $(Build.BuildId), $(Build.BuildNumber)" > buildinfo.txt'
+      displayName: 'Write build info'
+      workingDirectory: $(wwwrootDir)
+
+    - task: DotNetCoreCLI@2
+      displayName: 'Restore project dependencies'
+      inputs:
+        command: 'restore'
+        projects: '**/*.csproj'
+
+    - task: DotNetCoreCLI@2
+      displayName: 'Build the project - $(buildConfiguration)'
+      inputs:
+        command: 'build'
+        arguments: '--no-restore --configuration $(buildConfiguration)'
+        projects: '**/*.csproj'
+
+    - task: DotNetCoreCLI@2
+      displayName: 'Publish the project - $(buildConfiguration)'
+      inputs:
+        command: 'publish'
+        projects: '**/*.csproj'
+        publishWebProjects: false
+        arguments: '--no-build --configuration $(buildConfiguration) --output $(Build.ArtifactStagingDirectory)/$(buildConfiguration)'
+        zipAfterPublish: true
+
+    - publish: '$(Build.ArtifactStagingDirectory)'
+      artifact: drop
+
+  - job: BuildDacpac
+    pool:
+      vmImage: 'windows-2019'
+    steps:
+    - task: DotNetCoreCLI@2
+      displayName: 'Restore project dependencies'
+      inputs:
+        command: 'restore'
+        projects: '**/*.csproj'
+
+    - task: VSBuild@1
+      displayName: 'Build the database project'
+      inputs:
+        project: '**/*.sqlproj'
+
+    - task: CopyFiles@2
+      displayName: 'Copy dacpac file to staging directory'
+      inputs:
+        contents: |
+          Tailspin.SpaceGame.Database/bin/**/*.dacpac
+        targetFolder: '$(Build.StagingDirectory)'
+
+    - task: PublishBuildArtifacts@1
+      displayName: 'Publish Artifact'
+      inputs:
+        pathToPublish: '$(Build.ArtifactStagingDirectory)'
+        artifactName: dropDacpac
+      condition: succeededOrFailed()
+
+- stage: 'Provision'
+  displayName: 'Provision the database and web application'
+  jobs: 
+  - job: 'DeployInfrastructure'
+    displayName: 'Deploy infrastructure job'
+    pool:
+      vmImage: 'ubuntu-18.04'
+    variables:
+    - group: 'Release'
+    steps:
+    - task: AzureResourceManagerTemplateDeployment@3
+      inputs:
+        deploymentScope: 'Resource Group'
+        ConnectedServiceName: 'Resource Manager - Tailspin - Space Game'
+        subscriptionName: '$(subscription)'
+        action: 'Create Or Update Resource Group'
+        resourceGroupName: 'tailspin-spacegame-web-rg'
+        location: '$(location)'
+        templateLocation: 'Linked artifact'
+        csmFile: 'template.json'
+        csmParametersFile: 'deploymentParameters.json'
+        deploymentMode: 'Incremental'
+        deploymentOutputs: ResourceGroupDeploymentOutputs
+
+- stage: DBAVerificationScript
+  displayName: 'Script database schema changes'
+  dependsOn: Provision
+  jobs:
+  - deployment: DBAVerificationScript
+    pool:
+      vmImage: 'windows-2019'
+    variables:
+    - group: 'Release'
+    environment: 'dbaverificationscript'
+    strategy:
+      runOnce:
+        deploy:
+          steps: 
+          - task: AzureKeyVault@1
+            inputs:
+              azureSubscription: 'Resource Manager - Tailspin - Space Game'
+              keyVaultName: '$(keyVaultName)'
+              secretsFilter: '*'
+          - download: current
+            artifact: dropDacpac
+            patterns: '**/*'
+          - task: SqlAzureDacpacDeployment@1
+            displayName: Generate schema change script
+            inputs:
+              azureSubscription: 'Resource Manager - Tailspin - Space Game'
+              authenticationType: 'server'
+              serverName: 'tailspin-space-game-sql-dev-$(uniqueSuffix).database.windows.net'
+              databaseName: 'tailspindatabase'
+              sqlUsername: 'azuresql'
+              sqlPassword: '$(adminPassword)'
+              deployType: 'DacpacTask'
+              deploymentAction: 'Script'
+              dacpacFile: '$(Pipeline.Workspace)/dropDacpac/Tailspin.SpaceGame.Database/bin/Debug/Tailspin.SpaceGame.Database.dacpac'
+              ipDetectionMethod: 'AutoDetect'
+          - task: PowerShell@2
+            displayName: Show Auto Generated SQL Script
+            inputs:
+              targetType: 'inline'
+              script: | 
+                Write-Host "Auto Generated SQL Update Script:"
+                Get-Content d:\a\1\s\GeneratedOutputFiles\tailspindatabase_Script.sql | foreach {Write-Output $_}
+          - task: PowerShell@2
+            displayName: Show change script and check for schema changes
+            inputs:
+              targetType: 'inline'
+              script: | 
+                # Print the schema change script
+                Write-Host "Auto Generated SQL Update Script:"
+                Get-Content d:\a\1\s\GeneratedOutputFiles\tailspindatabase_Script.sql | foreach {Write-Output $_}
+
+                # Check for schema changes
+                $file = Get-Content "d:\a\1\s\GeneratedOutputFiles\tailspindatabase_Script.sql"
+                $containsWord = $file | %{$_ -match "CREATE" -or $_ -match "ALTER" -or $_ -match "DROP"}
+                if ($containsWord -contains $true) {
+                  Install-Module VSTeam -Scope CurrentUser -Force
+                  Set-VSTeamAccount –Account $(Acct) -PersonalAccessToken $(PAT)
+                  $methodParameters = @{
+                    ProjectName = "$(System.TeamProject)"
+                    Name = "Release"}
+                  $vg = Get-VSTeamVariableGroup @methodParameters
+                  $vars = @{}
+                  $vg.variables | Get-Member -MemberType *Property | %{$vars.($_.Name) = $vg.variables.($_.Name)}
+                  $varName = "schemaChanged"
+                  $vars.$varName= @{}
+                  $vars.$varName.value = "True"
+                  $vars.$varName.isSecret = $false
+                  $methodParameters = @{
+                    id = $vg.id
+                    ProjectName = "$(System.TeamProject)"
+                    Name = "Release"
+                    Description = ""
+                    Type = "Vsts"
+                    Variables = $vars}
+                  Update-VSTeamVariableGroup @methodParameters}
+
+- stage: DBAVerificationApply
+  displayName: 'Apply database schema changes'
+  dependsOn: DBAVerificationScript
+  condition: and(succeeded('DBAVerificationScript'), eq(variables['schemaChanged'], True))
+  variables:
+  - group: 'Release'
+  jobs:
+  - deployment: DBAVerificationApply
+    pool:
+      vmImage: 'windows-2019'
+    variables:
+    - group: 'Release'
+    environment: 'dbaverificationapply'
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+          - task: AzureKeyVault@1
+            inputs:
+              azureSubscription: 'Resource Manager - Tailspin - Space Game'
+              keyVaultName: '$(keyVaultName)'
+              secretsFilter: '*'
+          - download: current
+            artifact: dropDacpac
+            patterns: '**/*'
+          - task: SqlAzureDacpacDeployment@1
+            displayName: 'Deploy SQL schema'
+            inputs:
+              azureSubscription: 'Resource Manager - Tailspin - Space Game'
+              authenticationType: 'server'
+              serverName: 'tailspin-space-game-sql-dev-$(uniqueSuffix).database.windows.net'
+              databaseName: 'tailspindatabase'
+              sqlUsername: 'azuresql'
+              sqlPassword: '$(adminPassword)'
+              deployType: 'DacpacTask'
+              deploymentAction: 'Publish'
+              dacpacFile: '$(Pipeline.Workspace)/dropDacpac/Tailspin.SpaceGame.Database/bin/Debug/Tailspin.SpaceGame.Database.dacpac'
+              ipDetectionMethod: 'AutoDetect'
+          - task: PowerShell@2
+            displayName: 'Remove "schemaChanged" pipeline variable'
+            inputs:
+              targetType: 'inline'
+              script: | 
+                Install-Module VSTeam -Scope CurrentUser -Force
+                Set-VSTeamAccount –Account $(Acct) -PersonalAccessToken $(PAT)
+                $methodParameters = @{
+                  ProjectName = "$(System.TeamProject)"
+                  Name = "Release"}
+                $vg = Get-VSTeamVariableGroup  @methodParameters 
+                $vars = @{}
+                $vg.variables | Get-Member -MemberType *Property | %{$vars.($_.Name) = $vg.variables.($_.Name)}
+                $vars.Remove("schemaChanged")
+                $methodParameters = @{
+                  id = $vg.id
+                  ProjectName = "$(System.TeamProject)"
+                  Name = "Release"
+                  Description = ""
+                  Type = "Vsts"
+                  Variables = $vars}
+                Update-VSTeamVariableGroup @methodParameters
+
+- stage: 'Dev'
+  displayName: 'Deploy to the dev environment'
+  dependsOn:
+  - DBAVerificationScript
+  - DBAVerificationApply
+  condition: |
+    and
+    (
+      succeeded('DBAVerificationScript'),
+      in(dependencies.DBAVerificationApply.result, 'Succeeded', 'Skipped')
+    )
+  jobs:
+  - deployment: Deploy
+    pool:
+      vmImage: 'ubuntu-18.04'
+    environment: dev
+    variables:
+    - group: Release
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+          - task: AzureKeyVault@1
+            inputs:
+              azureSubscription: 'Resource Manager - Tailspin - Space Game'
+              keyVaultName: '$(keyVaultName)'
+              secretsFilter: '*'
+          - download: current
+            artifact: drop
+          - task: AzureWebApp@1
+            displayName: 'Azure App Service Deploy: website'
+            inputs:
+              azureSubscription: 'Resource Manager - Tailspin - Space Game'
+              appName: 'tailspin-space-game-web-dev-$(uniqueSuffix)'
+              package: '$(Pipeline.Workspace)/drop/$(buildConfiguration)/*.zip'
+          - task: AzureAppServiceSettings@1
+            displayName: Azure App Service Settings
+            inputs:
+              azureSubscription: 'Resource Manager - Tailspin - Space Game'
+              appName: 'tailspin-space-game-web-dev-$(uniqueSuffix)'
+              connectionStrings: |
+                [{ "name": "DefaultConnection","value": "$(connectionString)","type": "SQLAzure","slotSetting": false }]
